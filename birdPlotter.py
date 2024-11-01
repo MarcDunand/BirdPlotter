@@ -1,15 +1,17 @@
 from ultralytics import YOLO
 import cv2
 import numpy as np
+from skimage.metrics import structural_similarity as ssim
 
 # Load the YOLO model
-model = YOLO('yolov8m.pt')  # Choose your model version
+model = YOLO('yolov8n.pt')  # Choose your model version
 
 # Open the prerecorded video file
-cap = cv2.VideoCapture('birdClip.mkv')
+cap = cv2.VideoCapture('birdClip2_trimmed.mkv')
 
-# Initialize background subtractor
-bg_subtractor = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=50, detectShadows=True)
+frame_count = 0  # Track the frame number for unique filenames
+prev_frame = None  # To store the previous frame
+similarity_threshold = 0.99  # Threshold for skipping similar frames
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -19,21 +21,21 @@ while cap.isOpened():
     # Resize to full resolution for YOLO processing
     frame = cv2.resize(frame, (4656, 3496))
 
-    # Apply background subtraction to detect motion
-    fg_mask = bg_subtractor.apply(frame)
+    # Convert the current frame to grayscale for easier comparison
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Calculate the number of non-zero pixels in the mask (indicating motion)
-    motion_pixels = np.count_nonzero(fg_mask)
+    # Check similarity with the previous frame using SSIM
+    if prev_frame is not None:
+        score, _ = ssim(prev_frame, gray_frame, full=True)
+        # Skip this frame if it is very similar to the previous one
+        if score > similarity_threshold:
+            continue  # Skip processing if frames are very similar
 
-    # Set a threshold for detecting significant motion
-    if motion_pixels > 5000:  # Adjust threshold based on your scene
-        # Run YOLO on frames with significant motion
-        results = model(frame, conf=0.15, imgsz=(4672, 3520))
-        print('Movement Detected:')
+    # Update the previous frame after confirming it’s unique or sufficiently different
+    prev_frame = gray_frame.copy()
 
-    if motion_pixels < 5000:  # Adjust threshold based on your scene
-        # Run YOLO on frames with significant motion
-        results = model(frame, conf=0.25, imgsz=(4672, 3520))
+    # Run YOLO detection
+    results = model(frame, conf=0.3, imgsz=(4672, 3520))
 
     # Process detections
     for detection in results[0].boxes:
@@ -41,12 +43,17 @@ while cap.isOpened():
         confidence = detection.conf[0]
         cls = int(detection.cls[0])
 
-        # Check if the detected object is a bird
-        if model.names[cls] == "bird":
+        # Check if the detected object is a bird, airplane, or kite
+        if model.names[cls] in ["bird", "airplane", "kite"]:
             # Draw bounding box and display bird's position
-            cv2.rectangle(frame, (int(x_min), int(y_min)), (int(x_max), int(y_max)), (0, 0, 255), 2)
+            cv2.rectangle(frame, (int(x_min) - 10, int(y_min) - 10), (int(x_max) + 10, int(y_max) + 10), (0, 0, 255), 2)
             position = (int((x_min + x_max) / 2), int((y_min + y_max) / 2))
             cv2.putText(frame, f"Bird at {position}", (int(x_min), int(y_min) - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 2)
+
+            # Save the frame with the bird detected
+            cv2.imwrite(f"./bird_frames/bird_frame_{frame_count}.jpg", frame)
+            frame_count += 1
+
         else:
             # Draw bounding box and display detected object's label
             cv2.rectangle(frame, (int(x_min), int(y_min)), (int(x_max), int(y_max)), (255, 0, 0), 2)
