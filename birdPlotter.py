@@ -13,26 +13,45 @@ else:
     device = torch.device("cpu")
     print("Using CPU")
 
+
 # Define drawing functions
-def circle(x, y, r):
-    x = 279.4 - x
-    y = 215.9 - y
-    axi.moveto(x, y + r)
-    steps = 30
+def arc(x, y, rx, ry, thetaS, thetaE, raisePen):
+    if(thetaE < thetaS):
+        print("Make starting angle less than ending angle")
+        return
+        
+    if raisePen:
+        axi.penup()
+
+    axi.goto(x + rx*math.sin(thetaS), y + ry*math.cos(thetaS))
+    dTheta = thetaE-thetaS
+    steps = int((dTheta/(2*math.pi))*23)
     for i in range(steps + 1):
-        theta = (i * 2 * math.pi) / steps
-        axi.lineto(x + r * math.sin(theta), y + r * math.cos(theta))
-    axi.penup()
+        theta = thetaS + (i*dTheta)/steps
+        axi.lineto(x + rx*math.sin(theta), y + ry*math.cos(theta))
+    if raisePen:
+        axi.penup()
+
 
 def rect(x, y, w, h):
-    x = 275 - x
-    y = 200 - y
     axi.moveto(x, y)
     axi.lineto(x + w, y)
     axi.lineto(x + w, y + h)
     axi.lineto(x, y + h)
     axi.lineto(x, y)
     axi.penup()
+
+
+def drawBird(x, y, w, h):
+    cutoff = 1
+    arc(x + np.cos((np.pi/2)-cutoff)*(w/4), y-h/4, w/4, h, cutoff*-1, cutoff, False)
+    arc(x + np.cos((np.pi/2)-cutoff)*(3*w/4), y-h/4, w/4, h, cutoff*-1, cutoff, False)
+
+    axi.penup()
+
+
+
+
 
 # Startup the AxiDraw
 axi = axidraw.AxiDraw()
@@ -50,7 +69,7 @@ model = YOLO('yolov8m.pt')
 model.to(device)
 
 # Open the webcam video feed
-cap = cv2.VideoCapture(0)  # Use '0' for the default webcam
+cap = cv2.VideoCapture(1)  # Use '0' for the default webcam
 
 frame_count = 0
 
@@ -67,7 +86,7 @@ while True:
 
     # Run YOLO detection
     print("Beginning to run YOLO")
-    results = model(frame, conf=0.3, imgsz=(4672, 3520))
+    results = model(frame, conf=0.05, imgsz=(4672, 3520))
     print("YOLO detection completed")
 
     foundBirds = []
@@ -87,7 +106,7 @@ while True:
             cv2.imwrite(f"./bird_frames/bird_frame_{frame_count}.jpg", frame)
             frame_count += 1
             ratio = 0.065
-            if x_min > 200 and y_min > 200 and x_max < 4400 and y_max < 3300:
+            if x_min > 200 and y_min > 200 and x_max < 4400 and y_max < 3300 and (x_max-x_min)*(y_max-y_min) < 40000:
                 foundBirds.append([float(x_min) * ratio, float(y_min) * ratio,
                                float(x_max - x_min) * ratio, float(y_max - y_min) * ratio])
 
@@ -101,7 +120,10 @@ while True:
     if foundBirds:
         print("Drawing bounding boxes with AxiDraw")
         for bird in foundBirds:
-            rect(bird[0], bird[1], bird[2], bird[3])
+            bird[0] = 275 - bird[0]
+            bird[1] = 200 - bird[1]
+            #rect(bird[0], bird[1], bird[2], bird[3])  #debugging
+            drawBird(bird[0], bird[1], bird[2], bird[3])
         print("AxiDraw completed drawing the bounding boxes.")
 
 # Cleanup
